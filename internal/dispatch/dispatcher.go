@@ -1,4 +1,4 @@
-package dispatcher
+package dispatch
 
 import (
 	"bytes"
@@ -31,6 +31,7 @@ type Dispatcher struct {
 	httpClient *http.Client
 	breakers   sync.Map
 	limiters   sync.Map
+	config     Config
 }
 
 type job struct {
@@ -38,22 +39,62 @@ type job struct {
 	event domain.Event
 }
 
+type Config struct {
+	Workers               uint32
+	BufferSize            uint32
+	CircuitBreakerOptions CircuitBreakerOptions
+	LimiterOptions        LimiterOptions
+	BackoffOptions        BackoffOptions
+	HttpOptions           HttpOptions
+}
+
+type CircuitBreakerOptions struct {
+	// How many requests go throw while half-open
+	MaxRequests uint32
+	// How long until ConsecutiveFailures is reset while in closed state
+	Interval time.Duration
+	// How long it lasts on open before going to half-open
+	Timeout time.Duration
+	// How many failures before circuit open
+	FailuresBeforeOpen uint32
+}
+
+type LimiterOptions struct {
+	RefilRate  rate.Limit
+	BucketSize int
+}
+
+type BackoffOptions struct {
+	// Base time that will be used to calculate the backoff
+	Base time.Duration
+	// Max amout of time for the backoff
+	MaxDelay time.Duration
+	// Base of the backoffer power calculation.
+	// multiplier ^ attempts
+	Multiplier float64
+}
+
+type HttpOptions struct {
+	Timeout time.Duration
+}
+
 const MaxRetention = 72 * time.Hour // 3 days
 
-func New(reader *kafka.Reader, db *mongo.Database) *Dispatcher {
+func NewDispatcher(reader *kafka.Reader, db *mongo.Database, config Config) *Dispatcher {
 	return &Dispatcher{
 		reader: reader,
 		db:     db,
 		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
+			Timeout: config.HttpOptions.Timeout,
 		},
+		config: config,
 	}
 }
 
-func (d *Dispatcher) Start(ctx context.Context, numWorkers, jobsBufferSize int) {
-	jobs := make(chan job, jobsBufferSize)
+func (d *Dispatcher) Start(ctx context.Context) {
+	jobs := make(chan job, d.config.BufferSize)
 	var wg sync.WaitGroup
-	for range numWorkers {
+	for range d.config.Workers {
 		wg.Add(1)
 		go d.worker(ctx, jobs, &wg)
 	}
@@ -110,7 +151,7 @@ func (d *Dispatcher) worker(ctx context.Context, jobs <-chan job, wg *sync.WaitG
 		var nexRetryAt time.Time
 
 		if eventStatus == "failed" {
-			nexRetryAt = now.Add(calculateBackoff(attemptNumber))
+			nexRetryAt = now.Add(d.calculateBackoff(attemptNumber))
 			cutoffDate := j.event.CreatedAt.Add(MaxRetention)
 			if nexRetryAt.After(cutoffDate) {
 				eventStatus = "dead"
@@ -193,13 +234,13 @@ func (d *Dispatcher) getCircuitBreaker(id string) *gobreaker.CircuitBreaker[*int
 	cb := gobreaker.NewCircuitBreaker[*int](gobreaker.Settings{
 		Name: id,
 		// how many requests go throw while half-open
-		MaxRequests: 1,
+		MaxRequests: d.config.CircuitBreakerOptions.MaxRequests,
 		// how long until ConsecutiveFailures is reset while in closed state
-		Interval: 30 * time.Second,
+		Interval: d.config.CircuitBreakerOptions.Interval,
 		// how long it lasts on open before going to half-open
-		Timeout: 60 * time.Second,
+		Timeout: d.config.CircuitBreakerOptions.Timeout,
 		ReadyToTrip: func(counts gobreaker.Counts) bool {
-			return counts.ConsecutiveFailures > 5
+			return counts.ConsecutiveFailures >= d.config.CircuitBreakerOptions.FailuresBeforeOpen
 		},
 	})
 	actual, _ := d.breakers.LoadOrStore(id, cb)
@@ -210,7 +251,7 @@ func (d *Dispatcher) getLimiter(id string) *rate.Limiter {
 	if val, ok := d.limiters.Load(id); ok {
 		return val.(*rate.Limiter)
 	}
-	l := rate.NewLimiter(rate.Limit(2), 20)
+	l := rate.NewLimiter(d.config.LimiterOptions.RefilRate, d.config.LimiterOptions.BucketSize)
 	actual, _ := d.limiters.LoadOrStore(id, l)
 	return actual.(*rate.Limiter)
 }
@@ -224,19 +265,15 @@ func (d *Dispatcher) generateHMAC(secret, body []byte) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func calculateBackoff(attempt int) time.Duration {
-	base := 30 * time.Second
-	maxDelay := 6 * time.Hour
-	multiplier := 2.0
-
-	delay := float64(base) * math.Pow(multiplier, float64(attempt))
+func (d *Dispatcher) calculateBackoff(attempt int) time.Duration {
+	delay := float64(d.config.BackoffOptions.Base) * math.Pow(d.config.BackoffOptions.Multiplier, float64(attempt))
 
 	jitter := (rand.Float64() * 0.2) - 0.1 // -10% to +10%
 	delay += delay * jitter
 
 	duration := time.Duration(delay)
-	if duration > maxDelay {
-		return maxDelay
+	if duration > d.config.BackoffOptions.MaxDelay {
+		return d.config.BackoffOptions.MaxDelay
 	}
 	return duration
 }
