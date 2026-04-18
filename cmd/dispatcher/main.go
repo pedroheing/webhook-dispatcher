@@ -32,8 +32,9 @@ type MongoConfig struct {
 }
 
 type DispatcherConfig struct {
-	Workers    uint32 `env:"WORKERS" envDefault:"100"`
-	BufferSize uint32 `env:"BUFFER_SIZE" envDefault:"1000"`
+	Workers         uint32        `env:"WORKERS" envDefault:"100"`
+	BufferSize      uint32        `env:"BUFFER_SIZE" envDefault:"1000"`
+	RetentionWindow time.Duration `env:"RETENTION_WINDOW" envDefault:"72h"`
 
 	CBMaxRequests        uint32        `env:"CB_MAX_REQUESTS" envDefault:"1"`
 	CBInterval           time.Duration `env:"CB_INTERVAL" envDefault:"60s"`
@@ -55,7 +56,6 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-
 	reader := kafka.NewReader(config.Kafka.Brokers, config.Kafka.Topic, config.Kafka.ConsumerGroup)
 	defer func() {
 		if err := reader.Close(); err != nil {
@@ -77,8 +77,9 @@ func main() {
 
 func buildDispatchConfig(c DispatcherConfig) dispatch.Config {
 	return dispatch.Config{
-		Workers:    c.Workers,
-		BufferSize: c.BufferSize,
+		Workers:         c.Workers,
+		BufferSize:      c.BufferSize,
+		RetentionWindow: c.RetentionWindow,
 		CircuitBreakerOptions: dispatch.CircuitBreakerOptions{
 			MaxRequests:        c.CBMaxRequests,
 			Interval:           c.CBInterval,
@@ -86,7 +87,7 @@ func buildDispatchConfig(c DispatcherConfig) dispatch.Config {
 			FailuresBeforeOpen: c.CBFailuresBeforeOpen,
 		},
 		LimiterOptions: dispatch.LimiterOptions{
-			RefilRate:  rate.Limit(c.LimiterRefillRate),
+			RefillRate: rate.Limit(c.LimiterRefillRate),
 			BucketSize: c.LimiterBucketSize,
 		},
 		BackoffOptions: dispatch.BackoffOptions{
