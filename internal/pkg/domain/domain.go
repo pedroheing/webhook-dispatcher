@@ -21,7 +21,7 @@ type Event struct {
 	Data          json.RawMessage   `bson:"data"`
 	Status        string            `bson:"status"`
 	AttemptNumber int               `bson:"attempt_number"`
-	NextRetryAt   time.Time         `bson:"next_retry_at,omitempty"`
+	NextRetryAt   *time.Time        `bson:"next_retry_at"`
 	Attempts      []DeliveryAttempt `bson:"delivery_attempts"`
 	CreatedAt     time.Time         `bson:"created_at"`
 }
