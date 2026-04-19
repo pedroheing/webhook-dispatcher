@@ -1,38 +1,37 @@
 services:
   mongo:
-    image: mongo
-    container_name: mongo
+    image: mongo:8
+    container_name: wd-mongo
     restart: always
+    ports:
+      - "27017:27017"
     environment:
       MONGO_INITDB_ROOT_USERNAME: admin
       MONGO_INITDB_ROOT_PASSWORD: password
-    ports:
-      - "27017:27017"
     volumes:
       - mongo_data:/data/db
+
   mongo-express:
     image: mongo-express
-    container_name: mongo-express
+    container_name: wd-mongo-express
     restart: always
     ports:
-      - 8081:8081
+      - "8083:8081"
     environment:
-      ME_CONFIG_MONGODB_URL: mongodb://admin:password@mongo:27017
-      ME_CONFIG_BASICAUTH_ENABLED: true
-      ME_CONFIG_BASICAUTH_USERNAME: admin
-      ME_CONFIG_BASICAUTH_PASSWORD: password
+      ME_CONFIG_MONGODB_URL: mongodb://admin:password@mongo:27017/
+      ME_CONFIG_BASICAUTH_ENABLED: false
     depends_on:
       - mongo
 
   kafka:
     image: apache/kafka:latest
-    container_name: kafka
+    container_name: wd-kafka
     restart: always
     user: root
     ports:
       - "9092:9092"
     environment:
-      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
@@ -46,18 +45,93 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
     volumes:
       - kafka_data:/tmp/kafka-logs
-      
+
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
-    container_name: kafka-ui
+    container_name: wd-kafka-ui
     restart: always
     ports:
       - "8080:8080"
     environment:
-      - KAFKA_CLUSTERS_0_NAME=local
-      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:29092
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
     depends_on:
       - kafka
+
+  webhook:
+    build:
+      context: .
+      args:
+        SERVICE: webhook
+    container_name: wd-webhook
+    restart: always
+    ports:
+      - "8081:8081"
+    environment:
+      API_PORT_WEBHOOK: 8081
+      KAFKA_BROKERS: kafka:29092
+      KAFKA_TOPIC: events.pending
+      MONGO_URI: mongodb://admin:password@mongo:27017/?authSource=admin
+      MONGO_DATABASE: webhook-dispatcher
+    depends_on:
+      - mongo
+      - kafka
+
+  dispatcher:
+    build:
+      context: .
+      args:
+        SERVICE: dispatch
+    container_name: wd-dispatcher
+    restart: always
+    environment:
+      KAFKA_BROKERS: kafka:29092
+      KAFKA_TOPIC: events.pending
+      KAFKA_CONSUMER_GROUP: webhook-dispatcher
+      MONGO_URI: mongodb://admin:password@mongo:27017/?authSource=admin
+      MONGO_DATABASE: webhook-dispatcher
+      DISPATCHER_WORKERS: 100
+      DISPATCHER_BUFFER_SIZE: 1000
+      DISPATCHER_RETENTION_WINDOW: 72h
+      DISPATCHER_CB_MAX_REQUESTS: 1
+      DISPATCHER_CB_INTERVAL: 60s
+      DISPATCHER_CB_TIMEOUT: 60s
+      DISPATCHER_CB_FAILURES_BEFORE_OPEN: 5
+      DISPATCHER_LIMITER_REFILL_RATE: 2
+      DISPATCHER_LIMITER_BUCKET_SIZE: 20
+      DISPATCHER_BACKOFF_BASE: 30s
+      DISPATCHER_BACKOFF_MAX_DELAY: 6h
+      DISPATCHER_BACKOFF_MULTIPLIER: 2
+      DISPATCHER_HTTP_TIMEOUT: 30s
+    depends_on:
+      - mongo
+      - kafka
+
+  scheduler:
+    build:
+      context: .
+      args:
+        SERVICE: schedule
+    container_name: wd-scheduler
+    restart: always
+    environment:
+      KAFKA_BROKERS: kafka:29092
+      KAFKA_TOPIC: events.pending
+      MONGO_URI: mongodb://admin:password@mongo:27017/?authSource=admin
+      MONGO_DATABASE: webhook-dispatcher
+      SCHEDULER_DB_PULL_RATE: 5s
+      SCHEDULER_DB_BATCH_SIZE: 1000
+    depends_on:
+      - mongo
+      - kafka
+
+  client:
+    build:
+      context: .
+      args:
+        SERVICE: client
+    container_name: wd-client
+    restart: always
 
 volumes:
   mongo_data:
