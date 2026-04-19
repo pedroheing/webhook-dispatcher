@@ -81,7 +81,7 @@ type BackoffOptions struct {
 	// Max amout of time for the backoff
 	MaxDelay time.Duration
 	// Base of the backoffer power calculation.
-	// multiplier ^ attempts
+	// multiplier ^ deliveryAttempts
 	Multiplier float64
 }
 
@@ -245,11 +245,11 @@ func (d *Dispatcher) dispatch(ctx context.Context, event domain.Event) (*int, er
 		defer resp.Body.Close()
 
 		if resp.StatusCode >= 400 && resp.StatusCode < 500 && resp.StatusCode != 429 {
-			return nil, NewPermanentError(fmt.Errorf("client error: %d", resp.StatusCode))
+			return &resp.StatusCode, NewPermanentError(fmt.Errorf("client error: %d", resp.StatusCode))
 		}
 
 		if resp.StatusCode >= 500 || resp.StatusCode == 429 {
-			return nil, fmt.Errorf("client error: %d", resp.StatusCode)
+			return &resp.StatusCode, fmt.Errorf("client error: %d", resp.StatusCode)
 		}
 
 		_, err = io.Copy(io.Discard, resp.Body)
