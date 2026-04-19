@@ -9,7 +9,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
-type Repository struct {
+type MongoRepository struct {
 	db *mongo.Database
 }
 
@@ -19,29 +19,29 @@ type WebhookPatch struct {
 	Active        *bool    `bson:"active,omitempty"`
 }
 
-func NewRepository(db *mongo.Database) *Repository {
-	return &Repository{db: db}
+func NewMongoRepository(db *mongo.Database) *MongoRepository {
+	return &MongoRepository{db: db}
 }
 
-func (r *Repository) collWebhooks() *mongo.Collection {
+func (r *MongoRepository) collWebhooks() *mongo.Collection {
 	return r.db.Collection(domain.CollectionWebhooks)
 }
 
-func (r *Repository) collEvents() *mongo.Collection {
+func (r *MongoRepository) collEvents() *mongo.Collection {
 	return r.db.Collection(domain.CollectionEvents)
 }
 
-func (r *Repository) Create(ctx context.Context, wh domain.Webhook) error {
+func (r *MongoRepository) Create(ctx context.Context, wh domain.Webhook) error {
 	_, err := r.collWebhooks().InsertOne(ctx, wh)
 	return err
 }
 
-func (r *Repository) CreateEvent(ctx context.Context, ev domain.Event) error {
+func (r *MongoRepository) CreateEvent(ctx context.Context, ev domain.Event) error {
 	_, err := r.collEvents().InsertOne(ctx, ev)
 	return err
 }
 
-func (r *Repository) Update(ctx context.Context, id string, wh WebhookPatch) (domain.Webhook, error) {
+func (r *MongoRepository) Update(ctx context.Context, id string, wh WebhookPatch) (domain.Webhook, error) {
 	opts := options.FindOneAndUpdate().SetReturnDocument(options.After)
 
 	var updated domain.Webhook
@@ -54,7 +54,7 @@ func (r *Repository) Update(ctx context.Context, id string, wh WebhookPatch) (do
 	return updated, nil
 }
 
-func (r *Repository) Delete(ctx context.Context, id string) error {
+func (r *MongoRepository) Delete(ctx context.Context, id string) error {
 	res, err := r.collWebhooks().DeleteOne(ctx, bson.M{"_id": id})
 	if err != nil {
 		return err
@@ -65,16 +65,16 @@ func (r *Repository) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-func (r *Repository) Get(ctx context.Context, id string) (domain.Webhook, error) {
+func (r *MongoRepository) Get(ctx context.Context, id string) (domain.Webhook, error) {
 	var wh domain.Webhook
-	err := r.collWebhooks().FindOne(ctx, bson.M{"_id": id}).Decode(wh)
+	err := r.collWebhooks().FindOne(ctx, bson.M{"_id": id}).Decode(&wh)
 	if err != nil {
 		return domain.Webhook{}, err
 	}
 	return wh, nil
 }
 
-func (r *Repository) List(ctx context.Context) ([]domain.Webhook, error) {
+func (r *MongoRepository) List(ctx context.Context) ([]domain.Webhook, error) {
 	cursor, err := r.collWebhooks().Find(ctx, bson.M{})
 	if err != nil {
 		return nil, err

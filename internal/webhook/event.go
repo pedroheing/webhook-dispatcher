@@ -37,7 +37,7 @@ func (h *Handler) CreateEvent(c *gin.Context) {
 		return
 	}
 
-	webhookId := c.Param(":id")
+	webhookId := c.Param("id")
 
 	webhook, err := h.validateWebhook(c.Request.Context(), req, webhookId)
 	if err != nil {
