@@ -7,6 +7,7 @@ import (
 	"webhook-dispatcher/internal/pkg/httpx"
 
 	"github.com/gin-gonic/gin"
+	"github.com/segmentio/kafka-go"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
@@ -37,11 +38,12 @@ type WebhookResponse struct {
 }
 
 type Handler struct {
+	writer     *kafka.Writer
 	repository *Repository
 }
 
-func NewHandler(repository *Repository) *Handler {
-	return &Handler{repository: repository}
+func NewHandler(writer *kafka.Writer, repository *Repository) *Handler {
+	return &Handler{writer: writer, repository: repository}
 }
 
 func (h *Handler) RegisterRoutes(r gin.IRouter) {
@@ -51,6 +53,7 @@ func (h *Handler) RegisterRoutes(r gin.IRouter) {
 	webhooks.GET("/:id", h.Get)
 	webhooks.PUT("/:id", h.Update)
 	webhooks.DELETE("/:id", h.Delete)
+	webhooks.POST(":id/events", h.CreateEvent)
 }
 
 func (h *Handler) Create(c *gin.Context) {

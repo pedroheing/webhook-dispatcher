@@ -14,12 +14,27 @@ type Webhook struct {
 	CreatedAt     time.Time `bson:"created_at"`
 }
 
+const (
+	CollectionEvents   = "events"
+	CollectionWebhooks = "webhooks"
+)
+
+type EventStatus string
+
+const (
+	EventStatusPending   EventStatus = "pending"
+	EventStatusDelivered EventStatus = "delivered"
+	EventStatusFailed    EventStatus = "failed"
+	EventStatusPoison    EventStatus = "poison"
+	EventStatusDead      EventStatus = "dead"
+)
+
 type Event struct {
 	ID            string            `bson:"_id"`
 	WebhookID     string            `bson:"webhook_id"`
 	EventType     string            `bson:"event_type"`
 	Data          json.RawMessage   `bson:"data"`
-	Status        string            `bson:"status"`
+	Status        EventStatus       `bson:"status"`
 	AttemptNumber int               `bson:"attempt_number"`
 	NextRetryAt   *time.Time        `bson:"next_retry_at"`
 	Attempts      []DeliveryAttempt `bson:"delivery_attempts"`
@@ -27,8 +42,8 @@ type Event struct {
 }
 
 type DeliveryAttempt struct {
-	Status     string    `bson:"status"`
-	HTTPStatus *int      `bson:"http_status"`
-	Error      string    `bson:"error,omitempty"`
-	At         time.Time `bson:"at"`
+	Status     EventStatus `bson:"status"`
+	HTTPStatus *int        `bson:"http_status"`
+	Error      string      `bson:"error,omitempty"`
+	At         time.Time   `bson:"at"`
 }

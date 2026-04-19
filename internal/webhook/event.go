@@ -1,4 +1,4 @@
-package event
+package webhook
 
 import (
 	"context"
@@ -13,17 +13,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/segmentio/kafka-go"
-	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
-type Handler struct {
-	writer *kafka.Writer
-	db     *mongo.Database
-}
-
 type CreateEventRequest struct {
-	WebhookID string          `json:"webhook_id" binding:"required"`
 	EventType string          `json:"event_type" binding:"required"`
 	Data      json.RawMessage `json:"data" binding:"required"`
 }
@@ -37,25 +30,18 @@ var (
 	ErrEventTypeNotAccepted = errors.New("event type not accepted")
 )
 
-func NewHandler(writer *kafka.Writer, db *mongo.Database) *Handler {
-	return &Handler{writer: writer, db: db}
-}
-
-func (h *Handler) RegisterRoutes(r gin.IRouter) {
-	events := r.Group("/events")
-	events.POST("", h.Create)
-}
-
-func (h *Handler) Create(c *gin.Context) {
+func (h *Handler) CreateEvent(c *gin.Context) {
 	var req CreateEventRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpx.BadRequest(c, err)
 		return
 	}
 
-	webhook, err := h.validateWebhook(c.Request.Context(), req)
+	webhookId := c.Param(":id")
+
+	webhook, err := h.validateWebhook(c.Request.Context(), req, webhookId)
 	if err != nil {
-		h.handleWebhookError(c, err, req)
+		h.handleWebhookError(c, err, req, webhookId)
 		return
 	}
 
@@ -75,11 +61,8 @@ func (h *Handler) Create(c *gin.Context) {
 	httpx.Created(c, CreateEventResponse{ID: event.ID})
 }
 
-func (h *Handler) validateWebhook(ctx context.Context, req CreateEventRequest) (domain.Webhook, error) {
-	var webhook domain.Webhook
-	err := h.db.Collection("webhooks").FindOne(ctx, bson.M{
-		"_id": req.WebhookID,
-	}).Decode(&webhook)
+func (h *Handler) validateWebhook(ctx context.Context, req CreateEventRequest, webhookId string) (domain.Webhook, error) {
+	webhook, err := h.repository.Get(ctx, webhookId)
 	if err != nil {
 		return domain.Webhook{}, err
 	}
@@ -92,10 +75,10 @@ func (h *Handler) validateWebhook(ctx context.Context, req CreateEventRequest) (
 	return webhook, nil
 }
 
-func (h *Handler) handleWebhookError(c *gin.Context, err error, req CreateEventRequest) {
+func (h *Handler) handleWebhookError(c *gin.Context, err error, req CreateEventRequest, webhookId string) {
 	switch {
 	case errors.Is(err, mongo.ErrNoDocuments):
-		httpx.BadRequest(c, fmt.Errorf("webhook not found: %s", req.WebhookID))
+		httpx.BadRequest(c, fmt.Errorf("webhook not found: %s", webhookId))
 	case errors.Is(err, ErrWebhookInactive):
 		httpx.BadRequest(c, err)
 	case errors.Is(err, ErrEventTypeNotAccepted):
@@ -107,7 +90,7 @@ func (h *Handler) handleWebhookError(c *gin.Context, err error, req CreateEventR
 }
 
 func (h *Handler) publishEvent(ctx context.Context, event domain.Event) error {
-	if _, err := h.db.Collection("events").InsertOne(ctx, event); err != nil {
+	if err := h.repository.CreateEvent(ctx, event); err != nil {
 		return err
 	}
 	payload, _ := json.Marshal(event)
