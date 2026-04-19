@@ -351,8 +351,6 @@ func TestWatchEvents_BadJSON_MarksPoisonAndCommits(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// 1st fetch returns the bad message; 2nd fetch cancels the ctx and returns an error,
-	// forcing watchEvents to exit on the next iteration's ctx check. No goroutines needed.
 	reader.EXPECT().FetchMessage(mock.Anything).Return(badMsg, nil).Once()
 	reader.EXPECT().FetchMessage(mock.Anything).
 		RunAndReturn(func(_ context.Context) (kafka.Message, error) {
