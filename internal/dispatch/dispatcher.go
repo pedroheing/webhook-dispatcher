@@ -148,28 +148,28 @@ func (d *Dispatcher) worker(ctx context.Context, jobs <-chan job, wg *sync.WaitG
 		}
 
 		if err == nil {
-			attempt.Status = "delivered"
+			attempt.Status = domain.EventStatusDelivered
 		} else if isPermanent(err) {
-			attempt.Status = "poison"
+			attempt.Status = domain.EventStatusPoison
 			attempt.Error = err.Error()
 		} else {
-			attempt.Status = "failed"
+			attempt.Status = domain.EventStatusFailed
 			attempt.Error = err.Error()
 		}
 
 		eventStatus := attempt.Status
 		var nextRetryAt *time.Time
-		if attempt.Status == "failed" {
-			retryTime := now.Add(d.calculateBackoff(j.event.AttemptNumber + 1))
+		if attempt.Status == domain.EventStatusFailed {
+			retryDate := now.Add(d.calculateBackoff(j.event.AttemptNumber + 1))
 			cutoffDate := j.event.CreatedAt.Add(d.config.RetentionWindow)
-			if retryTime.After(cutoffDate) {
-				eventStatus = "dead"
+			if retryDate.After(cutoffDate) {
+				eventStatus = domain.EventStatusDead
 			} else {
-				nextRetryAt = &retryTime
+				nextRetryAt = &retryDate
 			}
 		}
 
-		_, err = d.db.Collection("events").UpdateByID(ctx, j.event.ID, bson.M{
+		_, err = d.db.Collection(domain.CollectionEvents).UpdateByID(ctx, j.event.ID, bson.M{
 			"$set": bson.M{
 				"status":        eventStatus,
 				"next_retry_at": nextRetryAt,
@@ -194,12 +194,12 @@ func (d *Dispatcher) registerEventAsPoison(ctx context.Context, msg kafka.Messag
 	}
 	attempt := domain.DeliveryAttempt{
 		At:     time.Now().UTC(),
-		Status: "poison",
+		Status: domain.EventStatusPoison,
 		Error:  cause.Error(),
 	}
-	_, err := d.db.Collection("events").UpdateByID(ctx, eventID, bson.M{
+	_, err := d.db.Collection(domain.CollectionEvents).UpdateByID(ctx, eventID, bson.M{
 		"$set": bson.M{
-			"status": "poison",
+			"status": domain.EventStatusPoison,
 		},
 		"$push": bson.M{
 			"attempts": attempt,
@@ -210,7 +210,7 @@ func (d *Dispatcher) registerEventAsPoison(ctx context.Context, msg kafka.Messag
 
 func (d *Dispatcher) dispatch(ctx context.Context, event domain.Event) (*int, error) {
 	var webhook domain.Webhook
-	err := d.db.Collection("webhooks").FindOne(ctx, bson.M{"_id": event.WebhookID}).Decode(&webhook)
+	err := d.db.Collection(domain.CollectionWebhooks).FindOne(ctx, bson.M{"_id": event.WebhookID}).Decode(&webhook)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, NewPermanentError(fmt.Errorf("webhook not found: %s", event.WebhookID))
@@ -267,13 +267,10 @@ func (d *Dispatcher) getCircuitBreaker(id string) *gobreaker.CircuitBreaker[*int
 		return val.(*gobreaker.CircuitBreaker[*int])
 	}
 	cb := gobreaker.NewCircuitBreaker[*int](gobreaker.Settings{
-		Name: id,
-		// how many requests go throw while half-open
+		Name:        id,
 		MaxRequests: d.config.CircuitBreakerOptions.MaxRequests,
-		// how long until ConsecutiveFailures is reset while in closed state
-		Interval: d.config.CircuitBreakerOptions.Interval,
-		// how long it lasts on open before going to half-open
-		Timeout: d.config.CircuitBreakerOptions.Timeout,
+		Interval:    d.config.CircuitBreakerOptions.Interval,
+		Timeout:     d.config.CircuitBreakerOptions.Timeout,
 		ReadyToTrip: func(counts gobreaker.Counts) bool {
 			return counts.ConsecutiveFailures >= d.config.CircuitBreakerOptions.FailuresBeforeOpen
 		},

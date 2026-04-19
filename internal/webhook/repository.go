@@ -23,12 +23,21 @@ func NewRepository(db *mongo.Database) *Repository {
 	return &Repository{db: db}
 }
 
-func (r *Repository) coll() *mongo.Collection {
-	return r.db.Collection("webhooks")
+func (r *Repository) collWebhooks() *mongo.Collection {
+	return r.db.Collection(domain.CollectionWebhooks)
+}
+
+func (r *Repository) collEvents() *mongo.Collection {
+	return r.db.Collection(domain.CollectionEvents)
 }
 
 func (r *Repository) Create(ctx context.Context, wh domain.Webhook) error {
-	_, err := r.coll().InsertOne(ctx, wh)
+	_, err := r.collWebhooks().InsertOne(ctx, wh)
+	return err
+}
+
+func (r *Repository) CreateEvent(ctx context.Context, ev domain.Event) error {
+	_, err := r.collEvents().InsertOne(ctx, ev)
 	return err
 }
 
@@ -36,7 +45,7 @@ func (r *Repository) Update(ctx context.Context, id string, wh WebhookPatch) (do
 	opts := options.FindOneAndUpdate().SetReturnDocument(options.After)
 
 	var updated domain.Webhook
-	err := r.coll().FindOneAndUpdate(ctx, bson.M{"_id": id}, bson.M{
+	err := r.collWebhooks().FindOneAndUpdate(ctx, bson.M{"_id": id}, bson.M{
 		"$set": wh,
 	}, opts).Decode(&updated)
 	if err != nil {
@@ -46,7 +55,7 @@ func (r *Repository) Update(ctx context.Context, id string, wh WebhookPatch) (do
 }
 
 func (r *Repository) Delete(ctx context.Context, id string) error {
-	res, err := r.coll().DeleteOne(ctx, bson.M{"_id": id})
+	res, err := r.collWebhooks().DeleteOne(ctx, bson.M{"_id": id})
 	if err != nil {
 		return err
 	}
@@ -58,7 +67,7 @@ func (r *Repository) Delete(ctx context.Context, id string) error {
 
 func (r *Repository) Get(ctx context.Context, id string) (domain.Webhook, error) {
 	var wh domain.Webhook
-	err := r.coll().FindOne(ctx, bson.M{"_id": id}).Decode(wh)
+	err := r.collWebhooks().FindOne(ctx, bson.M{"_id": id}).Decode(wh)
 	if err != nil {
 		return domain.Webhook{}, err
 	}
@@ -66,7 +75,7 @@ func (r *Repository) Get(ctx context.Context, id string) (domain.Webhook, error)
 }
 
 func (r *Repository) List(ctx context.Context) ([]domain.Webhook, error) {
-	cursor, err := r.coll().Find(ctx, bson.M{})
+	cursor, err := r.collWebhooks().Find(ctx, bson.M{})
 	if err != nil {
 		return nil, err
 	}

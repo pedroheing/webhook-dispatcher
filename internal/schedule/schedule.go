@@ -40,8 +40,8 @@ func (s *Scheduler) processRetries(ctx context.Context) {
 	findOptions := options.Find().
 		SetLimit(1000).
 		SetSort(bson.M{"next_retry_at": 1})
-	cursor, err := s.db.Collection("events").Find(ctx, bson.M{
-		"status":        "failed",
+	cursor, err := s.db.Collection(domain.CollectionEvents).Find(ctx, bson.M{
+		"status":        domain.EventStatusFailed,
 		"next_retry_at": bson.M{"$lte": time.Now()},
 	}, findOptions)
 	if err != nil {
@@ -61,10 +61,10 @@ func (s *Scheduler) processRetries(ctx context.Context) {
 	}
 
 	if len(ids) > 0 {
-		s.db.Collection("events").UpdateMany(ctx, bson.M{
+		s.db.Collection(domain.CollectionEvents).UpdateMany(ctx, bson.M{
 			"_id": bson.M{"$in": ids},
 		}, bson.M{
-			"$set": bson.M{"status": "pending"},
+			"$set": bson.M{"status": domain.EventStatusPending},
 		})
 	}
 }
@@ -73,7 +73,7 @@ func (s *Scheduler) publishOnBroker(ctx context.Context, events []domain.Event) 
 	var messages []kafka.Message
 	var ids []string
 	for _, e := range events {
-		e.Status = "pending"
+		e.Status = domain.EventStatusPending
 		payload, _ := json.Marshal(e)
 		messages = append(messages, kafka.Message{
 			Topic: "events.pending",
