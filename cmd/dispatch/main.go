@@ -14,7 +14,6 @@ import (
 )
 
 type Config struct {
-	APIPort    int              `env:"API_PORT_DISPATCHER,required"`
 	Kafka      KafkaConfig      `envPrefix:"KAFKA_"`
 	Mongo      MongoConfig      `envPrefix:"MONGO_"`
 	Dispatcher DispatcherConfig `envPrefix:"DISPATCHER_"`
@@ -71,7 +70,8 @@ func main() {
 		panic(err)
 	}
 	defer disconnectMongo(mongoClient)
-	dispatcher := dispatch.NewDispatcher(reader, mongoClient.Database(config.Mongo.Database), buildDispatchConfig(config.Dispatcher))
+	repository := dispatch.NewMongoRepository(mongoClient.Database(config.Mongo.Database))
+	dispatcher := dispatch.NewDispatcher(reader, repository, buildDispatchConfig(config.Dispatcher))
 	dispatcher.Start(context.Background())
 }
 

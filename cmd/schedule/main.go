@@ -61,7 +61,8 @@ func main() {
 		PendingEventsTopic: config.Kafka.Topic,
 		DbBatchSize:        config.Scheduler.DbBatchSize,
 	}
-	scheduler := schedule.NewScheduler(writter, mongoClient.Database(config.Mongo.Database), schedulerConfig)
+	repository := schedule.NewMongoRepository(mongoClient.Database(config.Mongo.Database))
+	scheduler := schedule.NewScheduler(writter, repository, schedulerConfig)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	scheduler.Start(ctx)

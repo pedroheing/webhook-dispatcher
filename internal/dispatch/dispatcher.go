@@ -20,14 +20,24 @@ import (
 
 	"github.com/segmentio/kafka-go"
 	"github.com/sony/gobreaker/v2"
-	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"golang.org/x/time/rate"
 )
 
+type KafkaReader interface {
+	FetchMessage(ctx context.Context) (kafka.Message, error)
+	CommitMessages(ctx context.Context, msgs ...kafka.Message) error
+}
+
+type Repository interface {
+	FindWebhook(ctx context.Context, id string) (domain.Webhook, error)
+	UpdateEventAttempt(ctx context.Context, eventID string, status domain.EventStatus, nextRetryAt *time.Time, attempt domain.DeliveryAttempt) error
+	MarkEventPoison(ctx context.Context, eventID string, attempt domain.DeliveryAttempt) error
+}
+
 type Dispatcher struct {
-	reader     *kafka.Reader
-	db         *mongo.Database
+	reader     KafkaReader
+	repository Repository
 	httpClient *http.Client
 	breakers   sync.Map
 	limiters   sync.Map
@@ -86,10 +96,10 @@ type webhookPayload struct {
 	CreatedAt time.Time       `json:"created_at"`
 }
 
-func NewDispatcher(reader *kafka.Reader, db *mongo.Database, config Config) *Dispatcher {
+func NewDispatcher(reader KafkaReader, repository Repository, config Config) *Dispatcher {
 	return &Dispatcher{
-		reader: reader,
-		db:     db,
+		reader:     reader,
+		repository: repository,
 		httpClient: &http.Client{
 			Timeout: config.HttpOptions.Timeout,
 		},
@@ -169,15 +179,7 @@ func (d *Dispatcher) worker(ctx context.Context, jobs <-chan job, wg *sync.WaitG
 			}
 		}
 
-		_, err = d.db.Collection(domain.CollectionEvents).UpdateByID(ctx, j.event.ID, bson.M{
-			"$set": bson.M{
-				"status":        eventStatus,
-				"next_retry_at": nextRetryAt,
-			},
-			"$inc":  bson.M{"attempt_number": 1},
-			"$push": bson.M{"attempts": attempt},
-		})
-		if err != nil {
+		if err := d.repository.UpdateEventAttempt(ctx, j.event.ID, eventStatus, nextRetryAt, attempt); err != nil {
 			log.Printf("error saving event dispatch data %v", err)
 			continue
 		}
@@ -197,20 +199,11 @@ func (d *Dispatcher) registerEventAsPoison(ctx context.Context, msg kafka.Messag
 		Status: domain.EventStatusPoison,
 		Error:  cause.Error(),
 	}
-	_, err := d.db.Collection(domain.CollectionEvents).UpdateByID(ctx, eventID, bson.M{
-		"$set": bson.M{
-			"status": domain.EventStatusPoison,
-		},
-		"$push": bson.M{
-			"attempts": attempt,
-		},
-	})
-	return err
+	return d.repository.MarkEventPoison(ctx, eventID, attempt)
 }
 
 func (d *Dispatcher) dispatch(ctx context.Context, event domain.Event) (*int, error) {
-	var webhook domain.Webhook
-	err := d.db.Collection(domain.CollectionWebhooks).FindOne(ctx, bson.M{"_id": event.WebhookID}).Decode(&webhook)
+	webhook, err := d.repository.FindWebhook(ctx, event.WebhookID)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, NewPermanentError(fmt.Errorf("webhook not found: %s", event.WebhookID))
@@ -253,6 +246,10 @@ func (d *Dispatcher) dispatch(ctx context.Context, event domain.Event) (*int, er
 
 		if resp.StatusCode >= 400 && resp.StatusCode < 500 && resp.StatusCode != 429 {
 			return nil, NewPermanentError(fmt.Errorf("client error: %d", resp.StatusCode))
+		}
+
+		if resp.StatusCode >= 500 || resp.StatusCode == 429 {
+			return nil, fmt.Errorf("client error: %d", resp.StatusCode)
 		}
 
 		_, err = io.Copy(io.Discard, resp.Body)

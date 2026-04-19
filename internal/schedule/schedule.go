@@ -8,15 +8,21 @@ import (
 	"webhook-dispatcher/internal/pkg/domain"
 
 	"github.com/segmentio/kafka-go"
-	"go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/v2/mongo"
-	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
+type Repository interface {
+	FetchDueRetries(ctx context.Context, limit int64, now time.Time) ([]domain.Event, error)
+	MarkPending(ctx context.Context, ids []string) error
+}
+
+type KafkaWriter interface {
+	WriteMessages(ctx context.Context, msgs ...kafka.Message) error
+}
+
 type Scheduler struct {
-	writer *kafka.Writer
-	db     *mongo.Database
-	config Config
+	writer     KafkaWriter
+	repository Repository
+	config     Config
 }
 
 type Config struct {
@@ -25,8 +31,8 @@ type Config struct {
 	PendingEventsTopic string
 }
 
-func NewScheduler(writer *kafka.Writer, db *mongo.Database, config Config) *Scheduler {
-	return &Scheduler{writer: writer, db: db, config: config}
+func NewScheduler(writer KafkaWriter, repository Repository, config Config) *Scheduler {
+	return &Scheduler{writer: writer, repository: repository, config: config}
 }
 
 func (s *Scheduler) Start(ctx context.Context) {
@@ -44,20 +50,9 @@ func (s *Scheduler) Start(ctx context.Context) {
 }
 
 func (s *Scheduler) processRetries(ctx context.Context) {
-	findOptions := options.Find().
-		SetLimit(s.config.DbBatchSize).
-		SetSort(bson.M{"next_retry_at": 1})
-	cursor, err := s.db.Collection(domain.CollectionEvents).Find(ctx, bson.M{
-		"status":        domain.EventStatusFailed,
-		"next_retry_at": bson.M{"$lte": time.Now()},
-	}, findOptions)
+	events, err := s.repository.FetchDueRetries(ctx, s.config.DbBatchSize, time.Now())
 	if err != nil {
 		log.Printf("error getting events: %v", err)
-		return
-	}
-	var events []domain.Event
-	if err := cursor.All(ctx, &events); err != nil {
-		log.Printf("error parsing events: %v", err)
 		return
 	}
 
@@ -68,11 +63,9 @@ func (s *Scheduler) processRetries(ctx context.Context) {
 	}
 
 	if len(ids) > 0 {
-		s.db.Collection(domain.CollectionEvents).UpdateMany(ctx, bson.M{
-			"_id": bson.M{"$in": ids},
-		}, bson.M{
-			"$set": bson.M{"status": domain.EventStatusPending},
-		})
+		if err := s.repository.MarkPending(ctx, ids); err != nil {
+			log.Printf("error marking pending: %v", err)
+		}
 	}
 }
 

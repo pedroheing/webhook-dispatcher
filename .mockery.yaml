@@ -1,0 +1,21 @@
+with-expecter: true
+dir: "{{.InterfaceDir}}/mocks"
+outpkg: "mocks"
+filename: "mock_{{.InterfaceName}}.go"
+mockname: "Mock{{.InterfaceName}}"
+disable-version-string: true
+issue-845-fix: true
+resolve-type-alias: false
+packages:
+  webhook-dispatcher/internal/webhook:
+    interfaces:
+      Repository:
+      KafkaWriter:
+  webhook-dispatcher/internal/dispatch:
+    interfaces:
+      Repository:
+      KafkaReader:
+  webhook-dispatcher/internal/schedule:
+    interfaces:
+      Repository:
+      KafkaWriter:

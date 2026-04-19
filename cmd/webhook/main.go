@@ -56,7 +56,7 @@ func main() {
 		PendingEventsTopic: config.Kafka.Topic,
 	}
 
-	repository := webhook.NewRepository(mongoClient.Database(config.Mongo.Database))
+	repository := webhook.NewMongoRepository(mongoClient.Database(config.Mongo.Database))
 	webhookHandler := webhook.NewHandler(writter, repository, webhookConfig)
 
 	r := gin.Default()

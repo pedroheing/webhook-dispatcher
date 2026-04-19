@@ -1,6 +1,7 @@
 package webhook
 
 import (
+	"context"
 	"errors"
 	"log"
 	"webhook-dispatcher/internal/pkg/domain"
@@ -10,6 +11,19 @@ import (
 	"github.com/segmentio/kafka-go"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
+
+type Repository interface {
+	Create(ctx context.Context, wh domain.Webhook) error
+	Get(ctx context.Context, id string) (domain.Webhook, error)
+	List(ctx context.Context) ([]domain.Webhook, error)
+	Update(ctx context.Context, id string, patch WebhookPatch) (domain.Webhook, error)
+	Delete(ctx context.Context, id string) error
+	CreateEvent(ctx context.Context, ev domain.Event) error
+}
+
+type KafkaWriter interface {
+	WriteMessages(ctx context.Context, msgs ...kafka.Message) error
+}
 
 type CreateWebhookRequest struct {
 	Url           string   `json:"url" binding:"required,url"`
@@ -25,7 +39,7 @@ type CreateWebhookResponse struct {
 }
 
 type UpdateWebhookRequest struct {
-	Url           *string  `json:"url"  binding:"url"`
+	Url           *string  `json:"url"  binding:"omitempty,url"`
 	EnabledEvents []string `json:"enabled_events"`
 	Active        *bool    `json:"active"`
 }
@@ -42,12 +56,12 @@ type Config struct {
 }
 
 type Handler struct {
-	writer     *kafka.Writer
-	repository *Repository
+	writer     KafkaWriter
+	repository Repository
 	config     Config
 }
 
-func NewHandler(writer *kafka.Writer, repository *Repository, config Config) *Handler {
+func NewHandler(writer KafkaWriter, repository Repository, config Config) *Handler {
 	return &Handler{writer: writer, repository: repository, config: config}
 }
 
