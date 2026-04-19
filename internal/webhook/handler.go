@@ -37,13 +37,18 @@ type WebhookResponse struct {
 	Active        bool     `json:"active"`
 }
 
+type Config struct {
+	PendingEventsTopic string
+}
+
 type Handler struct {
 	writer     *kafka.Writer
 	repository *Repository
+	config     Config
 }
 
-func NewHandler(writer *kafka.Writer, repository *Repository) *Handler {
-	return &Handler{writer: writer, repository: repository}
+func NewHandler(writer *kafka.Writer, repository *Repository, config Config) *Handler {
+	return &Handler{writer: writer, repository: repository, config: config}
 }
 
 func (h *Handler) RegisterRoutes(r gin.IRouter) {

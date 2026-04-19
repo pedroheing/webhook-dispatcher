@@ -16,14 +16,21 @@ import (
 type Scheduler struct {
 	writer *kafka.Writer
 	db     *mongo.Database
+	config Config
 }
 
-func New(writer *kafka.Writer, db *mongo.Database) *Scheduler {
-	return &Scheduler{writer: writer, db: db}
+type Config struct {
+	DbPullRate         time.Duration
+	DbBatchSize        int64
+	PendingEventsTopic string
+}
+
+func NewScheduler(writer *kafka.Writer, db *mongo.Database, config Config) *Scheduler {
+	return &Scheduler{writer: writer, db: db, config: config}
 }
 
 func (s *Scheduler) Start(ctx context.Context) {
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(s.config.DbPullRate)
 	defer ticker.Stop()
 
 	for {
@@ -38,7 +45,7 @@ func (s *Scheduler) Start(ctx context.Context) {
 
 func (s *Scheduler) processRetries(ctx context.Context) {
 	findOptions := options.Find().
-		SetLimit(1000).
+		SetLimit(s.config.DbBatchSize).
 		SetSort(bson.M{"next_retry_at": 1})
 	cursor, err := s.db.Collection(domain.CollectionEvents).Find(ctx, bson.M{
 		"status":        domain.EventStatusFailed,
@@ -76,7 +83,7 @@ func (s *Scheduler) publishOnBroker(ctx context.Context, events []domain.Event) 
 		e.Status = domain.EventStatusPending
 		payload, _ := json.Marshal(e)
 		messages = append(messages, kafka.Message{
-			Topic: "events.pending",
+			Topic: s.config.PendingEventsTopic,
 			Key:   []byte(e.ID),
 			Value: payload,
 		})
