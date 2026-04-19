@@ -14,7 +14,7 @@ import (
 )
 
 type Config struct {
-	APIPort    int              `env:"API_PORT,required"`
+	APIPort    int              `env:"API_PORT_DISPATCHER,required"`
 	Kafka      KafkaConfig      `envPrefix:"KAFKA_"`
 	Mongo      MongoConfig      `envPrefix:"MONGO_"`
 	Dispatcher DispatcherConfig `envPrefix:"DISPATCHER_"`

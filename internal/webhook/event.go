@@ -95,7 +95,7 @@ func (h *Handler) publishEvent(ctx context.Context, event domain.Event) error {
 	}
 	payload, _ := json.Marshal(event)
 	return h.writer.WriteMessages(ctx, kafka.Message{
-		Topic: "events.pending",
+		Topic: h.config.PendingEventsTopic,
 		Key:   []byte(event.ID),
 		Value: payload,
 	})
