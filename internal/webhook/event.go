@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"slices"
+	"time"
 	"webhook-dispatcher/internal/pkg/domain"
 	"webhook-dispatcher/internal/pkg/httpx"
 
@@ -46,10 +47,12 @@ func (h *Handler) CreateEvent(c *gin.Context) {
 	}
 
 	event := domain.Event{
-		ID:        "ev_" + uuid.New().String(),
-		WebhookID: webhook.ID,
-		EventType: req.EventType,
-		Data:      req.Data,
+		ID:               "ev_" + uuid.New().String(),
+		WebhookID:        webhook.ID,
+		EventType:        req.EventType,
+		Data:             req.Data,
+		CreatedAt:        time.Now().UTC(),
+		DeliveryAttempts: []domain.DeliveryAttempt{},
 	}
 
 	if err := h.publishEvent(c.Request.Context(), event); err != nil {

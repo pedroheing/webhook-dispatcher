@@ -33,7 +33,7 @@ func (s *MongoRepository) UpdateEventAttempt(ctx context.Context, eventID string
 			"next_retry_at": nextRetryAt,
 		},
 		"$inc":  bson.M{"attempt_number": 1},
-		"$push": bson.M{"attempts": attempt},
+		"$push": bson.M{"delivery_attempts": attempt},
 	})
 	return err
 }
@@ -44,7 +44,7 @@ func (s *MongoRepository) MarkEventPoison(ctx context.Context, eventID string, a
 			"status": domain.EventStatusPoison,
 		},
 		"$push": bson.M{
-			"attempts": attempt,
+			"delivery_attempts": attempt,
 		},
 	})
 	return err
