@@ -61,6 +61,7 @@ func (h *Handler) CreateEvent(c *gin.Context) {
 		return
 	}
 
+	eventsCreatedTotal.Inc()
 	httpx.Created(c, CreateEventResponse{ID: event.ID})
 }
 

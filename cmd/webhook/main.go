@@ -11,6 +11,7 @@ import (
 	"webhook-dispatcher/internal/webhook"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	mongoDriver "go.mongodb.org/mongo-driver/v2/mongo"
 )
 
@@ -62,6 +63,8 @@ func main() {
 	r := gin.Default()
 	group := r.Group("v1")
 	webhookHandler.RegisterRoutes(group)
+
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	log.Printf("Starting server on port %d...", config.APIPort)
 	if err := r.Run(fmt.Sprintf(":%d", config.APIPort)); err != nil {

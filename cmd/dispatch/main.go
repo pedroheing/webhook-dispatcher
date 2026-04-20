@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 	"webhook-dispatcher/internal/dispatch"
@@ -9,14 +10,17 @@ import (
 	"webhook-dispatcher/internal/pkg/kafka"
 	"webhook-dispatcher/internal/pkg/mongo"
 
+	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	mongoDriver "go.mongodb.org/mongo-driver/v2/mongo"
 	"golang.org/x/time/rate"
 )
 
 type Config struct {
-	Kafka      KafkaConfig      `envPrefix:"KAFKA_"`
-	Mongo      MongoConfig      `envPrefix:"MONGO_"`
-	Dispatcher DispatcherConfig `envPrefix:"DISPATCHER_"`
+	MetricsPort int              `env:"METRICS_PORT" envDefault:"8082"`
+	Kafka       KafkaConfig      `envPrefix:"KAFKA_"`
+	Mongo       MongoConfig      `envPrefix:"MONGO_"`
+	Dispatcher  DispatcherConfig `envPrefix:"DISPATCHER_"`
 }
 
 type KafkaConfig struct {
@@ -72,7 +76,19 @@ func main() {
 	defer disconnectMongo(mongoClient)
 	repository := dispatch.NewMongoRepository(mongoClient.Database(config.Mongo.Database))
 	dispatcher := dispatch.NewDispatcher(reader, repository, buildDispatchConfig(config.Dispatcher))
+
+	go startMetricsServer(config.MetricsPort)
+
 	dispatcher.Start(context.Background())
+}
+
+func startMetricsServer(port int) {
+	r := gin.Default()
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
+	log.Printf("Starting metrics server on %d...", port)
+	if err := r.Run(fmt.Sprintf(":%d", port)); err != nil {
+		log.Fatalf("metrics server error: %v", err)
+	}
 }
 
 func buildDispatchConfig(c DispatcherConfig) dispatch.Config {

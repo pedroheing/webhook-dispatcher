@@ -179,6 +179,8 @@ func (d *Dispatcher) worker(ctx context.Context, jobs <-chan job, wg *sync.WaitG
 			}
 		}
 
+		recordOutcomeMetric(eventStatus)
+
 		if err := d.repository.UpdateEventAttempt(ctx, j.event.ID, eventStatus, nextRetryAt, attempt); err != nil {
 			log.Printf("error saving event dispatch data %v", err)
 			continue
@@ -194,11 +196,13 @@ func (d *Dispatcher) registerEventAsPoison(ctx context.Context, msg kafka.Messag
 	if eventID == "" {
 		return fmt.Errorf("missing message key")
 	}
+	status := domain.EventStatusPoison
 	attempt := domain.DeliveryAttempt{
 		At:     time.Now().UTC(),
-		Status: domain.EventStatusPoison,
+		Status: status,
 		Error:  cause.Error(),
 	}
+	recordOutcomeMetric(status)
 	return d.repository.MarkEventPoison(ctx, eventID, attempt)
 }
 
