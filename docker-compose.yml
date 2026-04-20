@@ -45,6 +45,12 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
     volumes:
       - kafka_data:/tmp/kafka-logs
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
@@ -71,8 +77,17 @@ services:
     container_name: wd-grafana
     ports:
       - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
     volumes:
       - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/etc/grafana/dashboards
+    depends_on:
+      - prometheus
 
   webhook:
     build:
@@ -88,10 +103,12 @@ services:
       KAFKA_BROKERS: kafka:29092
       KAFKA_TOPIC: events.pending
       MONGO_URI: mongodb://admin:password@mongo:27017/?authSource=admin
-      MONGO_DATABASE: webhook-dispatcher
+      MONGO_DATABASE: webhookDispatcherDb
     depends_on:
-      - mongo
-      - kafka
+      mongo:
+        condition: service_started
+      kafka:
+        condition: service_healthy
 
   dispatcher:
     build:
@@ -106,7 +123,7 @@ services:
       KAFKA_TOPIC: events.pending
       KAFKA_CONSUMER_GROUP: webhook-dispatcher
       MONGO_URI: mongodb://admin:password@mongo:27017/?authSource=admin
-      MONGO_DATABASE: webhook-dispatcher
+      MONGO_DATABASE: webhookDispatcherDb
       DISPATCHER_WORKERS: 100
       DISPATCHER_BUFFER_SIZE: 1000
       DISPATCHER_RETENTION_WINDOW: 72h
@@ -121,8 +138,10 @@ services:
       DISPATCHER_BACKOFF_MULTIPLIER: 2
       DISPATCHER_HTTP_TIMEOUT: 30s
     depends_on:
-      - mongo
-      - kafka
+      mongo:
+        condition: service_started
+      kafka:
+        condition: service_healthy
 
   scheduler:
     build:
@@ -135,12 +154,14 @@ services:
       KAFKA_BROKERS: kafka:29092
       KAFKA_TOPIC: events.pending
       MONGO_URI: mongodb://admin:password@mongo:27017/?authSource=admin
-      MONGO_DATABASE: webhook-dispatcher
+      MONGO_DATABASE: webhookDispatcherDb
       SCHEDULER_DB_PULL_RATE: 5s
       SCHEDULER_DB_BATCH_SIZE: 1000
     depends_on:
-      - mongo
-      - kafka
+      mongo:
+        condition: service_started
+      kafka:
+        condition: service_healthy
 
   client:
     build:
