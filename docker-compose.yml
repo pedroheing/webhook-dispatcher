@@ -131,6 +131,8 @@ services:
       args:
         SERVICE: client
     container_name: wd-client
+    environment:
+      API_PORT_CLIENT: 8090
     restart: always
 
 volumes:
