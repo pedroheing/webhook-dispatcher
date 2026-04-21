@@ -323,7 +323,7 @@ On startup, it will:
 | **Grafana**            | `http://localhost:3000`         | Default login: `admin` / `admin`          |
 | **Prometheus**         | `http://localhost:9090`         | -                                         |
 | **Kafka UI**           | `http://localhost:8080`         | -                                         |
-| **Mongo Express**      | `http://localhost:8083`         | -                                         |
+| **Mongo Express**      | `http://localhost:8083`         | Default login: `admin` / `pass`           |
 
 ## Usage Example
 
